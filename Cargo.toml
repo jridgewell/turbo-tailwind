@@ -1,0 +1,19 @@
+[package]
+name = "turbo-tailwind"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+bench = false
+
+[dependencies]
+anyhow = "1"
+serde = "1.0.136"
+sha2 = "0.10"
+tokio = { version = "1.21.2", features = ["full"] }
+turbo-tasks = { git = "https://github.com/vercel/turbo.git", rev = "ccf7727a" }
+turbo-tasks-fs = { git = "https://github.com/vercel/turbo.git", rev = "ccf7727a" }
+turbo-tasks-memory = { git = "https://github.com/vercel/turbo.git", rev = "ccf7727a" }
+
+[build-dependencies]
+turbo-tasks-build = { git = "https://github.com/vercel/turbo.git", rev = "ccf7727a" }
