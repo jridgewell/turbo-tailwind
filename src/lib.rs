@@ -1,33 +1,36 @@
+#![feature(arbitrary_self_types)]
+#![feature(async_fn_in_trait)]
 #![feature(min_specialization)]
 
 use std::io::Read;
 
 use anyhow::{anyhow, Result};
 use sha2::{Digest, Sha256};
-use turbo_tasks_fs::{DiskFileSystemVc, File, FileContent, FileSystemPathVc};
+use turbo_tasks::Vc;
+use turbo_tasks_fs::{DiskFileSystem, File, FileContent, FileSystem, FileSystemPath};
 
-// Create a reactive wrapper around String values. This creates 2 structs, a
-// `StringValue` (which is exactly the single-tuple struct you see below), and a
-// `StringValueVc` "value cell" wrapper. The Vc is the thing that allows us to
-// track dependencies of the current function.
+// Create a reactive wrapper around String values. This is just a simple tuple
+// struct, but it has the ability to be wrapped in Vc. The Vc wrapper is the
+// thing that allows us to track dependencies of the current function.
+// This isn't strictly necessary, Strings and other primitive values can be
+// wrapped in a Vc without a wrapper struct, but this is just to demo.
 #[turbo_tasks::value(transparent)]
 struct StringValue(String);
 
 #[turbo_tasks::function]
 pub async fn tailwind(cwd: String) -> Result<()> {
-    // Create a reactive Disk File System Vc.
-    // This is a concrete struct which implements the FileSystem trait over
-    // a real location on disk.
-    let disk_fs = DiskFileSystemVc::new("description".to_string(), cwd);
+    // This is a concrete struct which implements the FileSystem turbo trait over a
+    // real location on disk.
+    let disk_fs = DiskFileSystem::new("description".to_string(), cwd);
     // Start FS watching. Any writes to files we read will automatically recompute
     // functions which awaited on that read.
     disk_fs.await?.start_watching()?;
 
     // Cast to our generic FileSystem trait, which implements path/read methods.
-    let fs = disk_fs.as_file_system();
+    let fs: Vc<Box<dyn FileSystem>> = Vc::upcast(disk_fs);
 
-    // Create a FileSystemPathVc pointing to a "[CWD]/README.md" file.
-    let input = fs.root().join("README.md");
+    // Create a Vc<FileSystemPath> pointing to a "[CWD]/README.md" file.
+    let input = fs.root().join("README.md".to_string());
 
     // Pass our path into a helper function as input, and receive some output.
     let hash = hash_file(input);
@@ -41,7 +44,7 @@ pub async fn tailwind(cwd: String) -> Result<()> {
 }
 
 #[turbo_tasks::function]
-async fn hash_file(file_path: FileSystemPathVc) -> Result<StringValueVc> {
+async fn hash_file(file_path: Vc<FileSystemPath>) -> Result<Vc<StringValue>> {
     // Read the file. Because we're reading from a path that was created from our
     // watched DiskFileSystem, this file is automatically watched.
     let content = file_path.read().await?;
@@ -49,10 +52,10 @@ async fn hash_file(file_path: FileSystemPathVc) -> Result<StringValueVc> {
     match &*content {
         FileContent::Content(file) => {
             let hash = hash_content(file);
-            // Return a reactive StringValue Vc of our hash. Outputs (and inputs) to a Turbo
-            // function must be Vcs, so that we can create the dependency graph when we read
-            // a value.
-            Ok(StringValueVc::cell(hash))
+            // Return a reactive Vc<StringValue> of our hash. Outputs (and inputs) to a
+            // Turbo function must be Vcs, so that we can create the dependency
+            // graph when we read a value.
+            Ok(Vc::cell(hash))
         }
         FileContent::NotFound => {
             // File doesn't currently exist on disk. If it's saved later, we'll detect that.
@@ -81,9 +84,10 @@ fn hash_content(file: &File) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-// The register function (the name "register" is a convention) informs the turbo engine of all
-// possible value types and functions. The register should also call the register of every turbo
-// crate which you import, and include the automatically generated output file "register.rs".
+// The register function (the name "register" is a convention) informs the turbo
+// engine of all possible value types and functions. The register should also
+// call the register of every turbo crate which you import, and include the
+// automatically generated output file "register.rs".
 pub fn register() {
     turbo_tasks::register();
     turbo_tasks_fs::register();
